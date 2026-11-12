@@ -218,8 +218,6 @@ class App:
         if on != self._hover:
             self._hover = on
             self.root.attributes("-alpha", 1.0 if on else self.config["idle_alpha"])
-            if self.style:
-                self.style.on_hover(on)
 
     def _check_hover(self):
         px, py = self.root.winfo_pointerxy()
@@ -286,9 +284,7 @@ class App:
             root.configure(bg=BG)
         root.update_idletasks()
         round_corners(root, not cls.transparent)
-        self.style = cls(root, self.config, on_resize=self._place_bar)
-        if self._hover:
-            self.style.on_hover(True)
+        self.style = cls(root, self.config)
 
     def _render_bar(self, view):
         """view：見 bar_styles 模組說明；未設定上班時間時為 None。"""

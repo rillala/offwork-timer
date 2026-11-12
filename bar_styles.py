@@ -16,8 +16,8 @@ from theme import BG, KEY, SUBTEXT, SURFACE, TEXT, mix, mixed_text, num, zh
 class BarStyle:
     transparent = False      # True → 視窗用透明色鍵、不套圓角（圓環）
 
-    def __init__(self, win, cfg, on_resize):
-        self.win, self.cfg, self.on_resize = win, cfg, on_resize
+    def __init__(self, win, cfg):
+        self.win, self.cfg = win, cfg
         self.frame = tk.Frame(win, bg=KEY if self.transparent else BG)
         self.frame.pack()
         self.build()
@@ -27,9 +27,6 @@ class BarStyle:
 
     def update(self, v):
         raise NotImplementedError
-
-    def on_hover(self, on):
-        pass
 
     def destroy(self):
         self.frame.destroy()
@@ -74,32 +71,16 @@ class RowStyle(BarStyle):
 
 
 class CapsuleStyle(BarStyle):
-    """B 大字膠囊：只顯示倒數大字、底色隨階段變色；滑鼠移上去才展開上下班時間。"""
+    """B 大字膠囊：只顯示剩餘時間大字，底色隨階段變色。"""
 
     def build(self):
-        self.inner = tk.Frame(self.frame, padx=14, pady=1)
-        self.inner.pack()
-        self.detail = tk.Label(self.inner, font=num(10), fg=TEXT)
-        self.big = tk.Label(self.inner, font=num(18, True))
-        self.big.pack(side="right")
-        self._expanded = False
+        self.big = tk.Label(self.frame, font=num(18, True), padx=14, pady=1)
+        self.big.pack()
 
     def update(self, v):
         tint = mix(v["color"], BG, 0.22)
-        for w in (self.frame, self.inner, self.detail, self.big):
-            w.config(bg=tint)
-        self.big.config(fg=v["color"], text=("+" if v["over"] else "") + v["remain"])
-        self.detail.config(text=f"{v['start']} → {v['end']}")
-
-    def on_hover(self, on):
-        if on == self._expanded:
-            return
-        self._expanded = on
-        if on:
-            self.detail.pack(side="left", padx=(0, 10))
-        else:
-            self.detail.pack_forget()
-        self.on_resize()
+        self.frame.config(bg=tint)
+        self.big.config(bg=tint, fg=v["color"], text=("+" if v["over"] else "") + v["remain"])
 
 
 class CardStyle(BarStyle):
