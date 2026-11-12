@@ -1,4 +1,4 @@
-"""下班倒數計時器：系統匣圖示 + 工作列上方浮動小條 + 下班前煙火提醒。"""
+"""下班倒數計時器：系統匣圖示 + 浮動小條 + 下班前煙火提醒。"""
 import ctypes
 import json
 import os
@@ -6,12 +6,14 @@ import queue
 import sys
 import tkinter as tk
 from datetime import date, datetime, timedelta
-from tkinter import messagebox, simpledialog
 
 import pystray
 from PIL import Image, ImageDraw, ImageFont
 
-from celebrate import Celebration
+import celebrate
+from bar_styles import STYLES, UnsetStyle
+from dialogs import SettingsDialog, StartTimeDialog
+from theme import BG, BLUE, GRAY, GREEN, KEY, RED, SURFACE, YELLOW, resolve_fonts
 from worktime import calc_off_time, fmt_delta, parse_hhmm
 
 APP_NAME = "OffworkTimer"
@@ -24,8 +26,16 @@ DEFAULT_CONFIG = {
     "work_hours": 8,
     "lunch_start": "12:00",
     "lunch_end": "13:30",
-    "remind_before_min": 10,   # 煙火特效
-    "warn_before_min": 30,     # 文字變紅
+    "remind_before_min": 10,    # 下班前提示畫面
+    "warn_before_min": 30,      # 轉紅
+    "caution_before_min": 60,   # 轉黃
+    "idle_alpha": 0.7,          # 滑鼠不在浮動條上時的不透明度
+    "bar_style": "row",         # row / capsule / card / ring
+    "celebrate_style": "fireworks",  # fireworks / toast / banner
+    "show_start": True,         # show_*：只對 row 樣式有效
+    "show_end": True,
+    "show_remain": True,
+    "show_progress": True,
 }
 
 if sys.platform == "win32":
@@ -49,28 +59,74 @@ def save_json(path, data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def work_area():
-    """回傳桌面可用區域 (left, top, right, bottom)，不含工作列。"""
-    if sys.platform == "win32":
-        class RECT(ctypes.Structure):
-            _fields_ = [("l", ctypes.c_long), ("t", ctypes.c_long), ("r", ctypes.c_long), ("b", ctypes.c_long)]
-        r = RECT()
-        ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(r), 0)
-        return r.l, r.t, r.r, r.b
-    return None
+# ---------- Win32 小工具 ----------
+if sys.platform == "win32":
+    from ctypes import wintypes
+
+    class _MONITORINFO(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                    ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+
+    _user32 = ctypes.windll.user32
+    _user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+    _user32.MonitorFromPoint.restype = wintypes.HMONITOR
+    _user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.POINTER(_MONITORINFO)]
+    _user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+                                     ctypes.c_int, ctypes.c_int, wintypes.UINT]
+
+
+def monitor_rect(x, y, work=False):
+    """回傳離 (x, y) 最近的螢幕範圍 (l, t, r, b)；work=True 時不含工作列。"""
+    if sys.platform != "win32":
+        return None
+    hmon = _user32.MonitorFromPoint(wintypes.POINT(int(x), int(y)), 2)  # MONITOR_DEFAULTTONEAREST
+    mi = _MONITORINFO(cbSize=ctypes.sizeof(_MONITORINFO))
+    if not _user32.GetMonitorInfoW(hmon, ctypes.byref(mi)):
+        return None
+    r = mi.rcWork if work else mi.rcMonitor
+    return r.left, r.top, r.right, r.bottom
+
+
+def hwnd_of(win):
+    return ctypes.windll.user32.GetParent(win.winfo_id())
+
+
+def force_topmost(win):
+    """重新把視窗推到最上層（點工作列後工作列會蓋過其他 topmost 視窗）。不搶焦點。"""
+    if sys.platform != "win32":
+        return
+    HWND_TOPMOST = wintypes.HWND(-1)
+    SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE = 0x1, 0x2, 0x10
+    _user32.SetWindowPos(hwnd_of(win), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE)
+
+
+def round_corners(win, on=True):
+    """Windows 11 圓角（on=False 取消，給圓環樣式用）；舊版 Windows 會靜默失敗。"""
+    if sys.platform != "win32":
+        return
+    try:
+        pref = ctypes.c_int(2 if on else 1)  # DWMWCP_ROUND / DWMWCP_DONOTROUND
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd_of(win), 33, ctypes.byref(pref), ctypes.sizeof(pref))
+    except Exception:
+        pass
 
 
 class App:
     def __init__(self):
         self.config = load_json(CONFIG_PATH, DEFAULT_CONFIG)
-        if not os.path.exists(CONFIG_PATH):
-            save_json(CONFIG_PATH, self.config)
+        save_json(CONFIG_PATH, self.config)          # 補上新版本的設定欄位
         self.state = load_json(STATE_PATH, {})
         self.q = queue.Queue()
         self.today = date.today()
         self.start = None
         self.source = ""
         self.celebration = None
+        self._dialogs = {}
+        self.style = None
+        self._bar_size = None
+        self._hover = False
+        self._menu_open = False
+        self._tray_key = None
 
         self._restore_today_start()
         self._build_bar()
@@ -78,6 +134,7 @@ class App:
         if not self.start:
             self.root.after(500, self.ask_start)
         self.root.after(200, self._loop)
+        self.root.after(300, self._keep_on_top)
 
     # ---------- state ----------
     def _today_str(self):
@@ -92,6 +149,7 @@ class App:
         self.start, self.source = dt, source
         self.state.update(date=self._today_str(), start=dt.isoformat(), source=source)
         save_json(STATE_PATH, self.state)
+        self._refresh()
 
     @property
     def muted(self):
@@ -101,40 +159,90 @@ class App:
     def celebrated(self):
         return self.state.get("celebrated_date") == self._today_str()
 
+    @property
+    def bar_hidden(self):
+        return bool(self.state.get("bar_hidden"))
+
     def off_time(self):
         if not self.start:
             return None
         c = self.config
         return calc_off_time(self.start, c["work_hours"], parse_hhmm(c["lunch_start"]), parse_hhmm(c["lunch_end"]))
 
+    def stage_color(self, left):
+        mins = left.total_seconds() / 60
+        if mins <= 0:
+            return GREEN
+        if mins <= self.config["warn_before_min"]:
+            return RED
+        if mins <= self.config["caution_before_min"]:
+            return YELLOW
+        return BLUE
+
     # ---------- floating bar ----------
     def _build_bar(self):
-        self.root = tk.Tk()
-        self.root.title(APP_NAME)
-        self.root.overrideredirect(True)
-        self.root.attributes("-topmost", True)
-        self.root.attributes("-alpha", 0.88)
-        self.root.configure(bg="#1e1e2e")
-        self.label = tk.Label(self.root, text="…", fg="#cdd6f4", bg="#1e1e2e",
-                              font=("Microsoft JhengHei UI", 11, "bold"), padx=10, pady=3)
-        self.label.pack()
-        for w in (self.root, self.label):
-            w.bind("<ButtonPress-1>", self._drag_start)
-            w.bind("<B1-Motion>", self._drag_move)
-            w.bind("<ButtonRelease-1>", self._drag_end)
-            w.bind("<Button-3>", self._bar_menu)
-        self.root.update_idletasks()
-        pos = self.state.get("bar_pos")
-        if pos:
-            self.root.geometry(f"+{pos[0]}+{pos[1]}")
-        else:
-            wa = work_area()
-            if wa:
-                self.root.geometry(f"+{wa[2] - 260}+{wa[3] - 36}")
+        root = self.root = tk.Tk()
+        root.title(APP_NAME)
+        root.overrideredirect(True)
+        root.attributes("-topmost", True)
+        root.attributes("-alpha", self.config["idle_alpha"])
+        root.configure(bg=BG)
+        resolve_fonts(root)
+
+        # 綁在 toplevel 上 → 所有子元件（含之後換樣式重建的）都會觸發
+        root.bind("<ButtonPress-1>", self._drag_start)
+        root.bind("<B1-Motion>", self._drag_move)
+        root.bind("<ButtonRelease-1>", self._drag_end)
+        root.bind("<Double-Button-1>", lambda _e: self.ask_start())
+        root.bind("<Button-3>", self._bar_menu)
+        root.bind("<Enter>", lambda _e: self._set_hover(True))
+        root.bind("<Leave>", lambda _e: root.after(80, self._check_hover))
+
+        root.update_idletasks()
+        round_corners(root)
+        if self.bar_hidden:
+            root.withdraw()
+
+    def _set_hover(self, on):
+        if on != self._hover:
+            self._hover = on
+            self.root.attributes("-alpha", 1.0 if on else self.config["idle_alpha"])
+            if self.style:
+                self.style.on_hover(on)
+
+    def _check_hover(self):
+        px, py = self.root.winfo_pointerxy()
+        x, y = self.root.winfo_rootx(), self.root.winfo_rooty()
+        self._set_hover(x <= px < x + self.root.winfo_width() and y <= py < y + self.root.winfo_height())
+
+    def _anchor_from_rect(self, x, y, w, h):
+        """浮動條靠螢幕右半邊 → 以右下角為錨點（文字變長時往左長），否則以左下角為錨點。"""
+        mon = monitor_rect(x + w // 2, y + h // 2)
+        right = mon is not None and x + w / 2 > (mon[0] + mon[2]) / 2
+        return {"x": x + w if right else x, "y": y + h, "side": "right" if right else "left"}
+
+    def _place_bar(self):
+        root = self.root
+        root.update_idletasks()
+        w, h = root.winfo_reqwidth(), root.winfo_reqheight()
+        a = self.state.get("bar_anchor")
+        if not a:
+            old = self.state.pop("bar_pos", None)       # 舊版存的是左上角
+            if old:
+                a = self._anchor_from_rect(old[0], old[1], w, h)
             else:
-                self.root.geometry("+100+100")
-        if self.state.get("bar_hidden"):
-            self.root.withdraw()
+                wa = monitor_rect(0, 0, work=True) or (0, 0, root.winfo_screenwidth(), root.winfo_screenheight())
+                a = {"x": wa[2] - 12, "y": wa[3] - 8, "side": "right"}
+            self.state["bar_anchor"] = a
+            save_json(STATE_PATH, self.state)
+        x = a["x"] - w if a["side"] == "right" else a["x"]
+        y = a["y"] - h
+        mon = monitor_rect(x + w // 2, y + h // 2)      # 螢幕拔掉或解析度改變時拉回畫面內
+        if mon:
+            x = min(max(x, mon[0]), mon[2] - w)
+            y = min(max(y, mon[1]), mon[3] - h)
+        root.geometry(f"+{x}+{y}")
+        self._bar_size = (w, h)
 
     def _drag_start(self, e):
         self._dx, self._dy = e.x_root - self.root.winfo_x(), e.y_root - self.root.winfo_y()
@@ -143,65 +251,151 @@ class App:
         self.root.geometry(f"+{e.x_root - self._dx}+{e.y_root - self._dy}")
 
     def _drag_end(self, _e):
-        self.state["bar_pos"] = [self.root.winfo_x(), self.root.winfo_y()]
+        r = self.root
+        self.state["bar_anchor"] = self._anchor_from_rect(r.winfo_x(), r.winfo_y(), r.winfo_width(), r.winfo_height())
         save_json(STATE_PATH, self.state)
+
+    def _keep_on_top(self):
+        if not self.bar_hidden and not self._menu_open:
+            force_topmost(self.root)
+        self.root.after(300, self._keep_on_top)
+
+    def _apply_bar_style(self, cls):
+        """換浮動條樣式：銷毀舊內容、切換透明／圓角模式、建立新內容。"""
+        if self.style:
+            self.style.destroy()
+        root = self.root
+        if cls.transparent:
+            root.configure(bg=KEY)
+            root.attributes("-transparentcolor", KEY)
+        else:
+            root.attributes("-transparentcolor", "")
+            root.configure(bg=BG)
+        root.update_idletasks()
+        round_corners(root, not cls.transparent)
+        self.style = cls(root, self.config, on_resize=self._place_bar)
+        if self._hover:
+            self.style.on_hover(True)
+
+    def _render_bar(self, view):
+        """view：見 bar_styles 模組說明；未設定上班時間時為 None。"""
+        cls = UnsetStyle if view is None else STYLES.get(self.config["bar_style"], STYLES["row"])
+        if type(self.style) is not cls:
+            self._apply_bar_style(cls)
+        if view is not None:
+            self.style.update(view)
+        self.root.update_idletasks()
+        if (self.root.winfo_reqwidth(), self.root.winfo_reqheight()) != self._bar_size:
+            self._place_bar()
+
+    def toggle_bar(self):
+        if self.bar_hidden:
+            self.state["bar_hidden"] = False
+            self.root.deiconify()
+            force_topmost(self.root)
+        else:
+            self.state["bar_hidden"] = True
+            self.root.withdraw()
+        save_json(STATE_PATH, self.state)
+        self.tray.update_menu()
+
+    # ---------- menus（浮動條右鍵與系統匣共用） ----------
+    def _menu_items(self):
+        return [
+            ("今天暫停特效", "mute", lambda: self.muted),
+            ("設定上班時間…", "ask_start", None),
+            ("設定…", "settings", None),
+            ("測試特效", "celebrate", None),
+            None,
+            (lambda: "顯示浮動條" if self.bar_hidden else "隱藏浮動條", "toggle_bar", None),
+            ("開機自動啟動", "autostart", self.autostart_enabled),
+            ("結束", "quit", None),
+        ]
+
+    def _do(self, action):
+        {"mute": self.toggle_mute, "ask_start": self.ask_start, "settings": self.open_settings,
+         "celebrate": self.celebrate, "toggle_bar": self.toggle_bar,
+         "autostart": self.toggle_autostart, "quit": self.quit}[action]()
 
     def _bar_menu(self, e):
         m = tk.Menu(self.root, tearoff=0)
-        self._mute_var = tk.BooleanVar(value=self.muted)
-        m.add_checkbutton(label="今天暫停特效", command=self.toggle_mute, variable=self._mute_var)
-        m.add_command(label="設定上班時間…", command=self.ask_start)
-        m.add_command(label="測試特效", command=self.celebrate)
-        m.add_separator()
-        m.add_command(label="隱藏浮動條", command=self.toggle_bar)
-        m.add_command(label="結束", command=self.quit)
-        m.tk_popup(e.x_root, e.y_root)
+        for item in self._menu_items():
+            if item is None:
+                m.add_separator(); continue
+            label, action, checked = item
+            label = label() if callable(label) else label
+            if checked:
+                m.add_checkbutton(label=label, command=lambda a=action: self._do(a),
+                                  variable=tk.BooleanVar(m, value=checked()))
+            else:
+                m.add_command(label=label, command=lambda a=action: self._do(a))
+        self._menu_open = True                       # 選單開著時別把浮動條推到選單上面
+        try:
+            m.tk_popup(e.x_root, e.y_root)
+        finally:
+            m.grab_release()
+            self._menu_open = False
 
-    def toggle_bar(self):
-        if self.root.state() == "withdrawn":
-            self.root.deiconify(); self.root.attributes("-topmost", True)
-            self.state["bar_hidden"] = False
-        else:
-            self.root.withdraw()
-            self.state["bar_hidden"] = True
-        save_json(STATE_PATH, self.state)
-
-    # ---------- tray ----------
     def _build_tray(self):
-        def post(action):
-            return lambda *_: self.q.put((action, None, None))
-        menu = pystray.Menu(
-            pystray.MenuItem("今天暫停特效", post("mute"), checked=lambda _: self.muted),
-            pystray.MenuItem("設定上班時間…", post("ask_start")),
-            pystray.MenuItem("測試特效", post("celebrate")),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("顯示/隱藏浮動條", post("toggle_bar"), default=True),
-            pystray.MenuItem("開機自動啟動", post("autostart"), checked=lambda _: self.autostart_enabled()),
-            pystray.MenuItem("結束", post("quit")),
-        )
-        self.tray = pystray.Icon(APP_NAME, self._tray_image("--"), APP_NAME, menu)
-        self._tray_text = None
+        items = []
+        for item in self._menu_items():
+            if item is None:
+                items.append(pystray.Menu.SEPARATOR); continue
+            label, action, checked = item
+            text = (lambda _i, f=label: f()) if callable(label) else label
+            items.append(pystray.MenuItem(
+                text, lambda *_a, a=action: self.q.put(a),
+                checked=(lambda _i, f=checked: f()) if checked else None,
+                default=(action == "toggle_bar")))
+        self.tray = pystray.Icon(APP_NAME, self._tray_image("--", GRAY, None), APP_NAME, pystray.Menu(*items))
         self.tray.run_detached()
 
     @staticmethod
-    def _tray_image(text, color="#4cc9f0"):
+    def _tray_image(text, color, ratio):
+        """64px 圖示：外圈為當日進度環，中間是精簡文字（3h / 42m / OK）。"""
         img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
-        d.rounded_rectangle((0, 0, 63, 63), radius=12, fill="#1e1e2e")
-        size = 40                               # 縮到 "00:00" 剛好塞進 64px 寬
+        d.rounded_rectangle((0, 0, 63, 63), radius=12, fill=BG)
+        if ratio is not None:
+            box = (4, 4, 59, 59)
+            d.ellipse(box, outline=SURFACE, width=7)
+            if ratio > 0:
+                d.arc(box, -90, -90 + 360 * min(ratio, 1), fill=color, width=7)
+        max_w = 40 if ratio is not None else 60
+        size = 34
         while True:
-            try:
-                font = ImageFont.truetype("arialbd.ttf", size)
-            except OSError:
+            font = App._tray_font(size)
+            if font is None:
                 font = ImageFont.load_default(); break
             bbox = d.textbbox((0, 0), text, font=font)
-            if bbox[2] - bbox[0] <= 62 or size <= 10:
+            if bbox[2] - bbox[0] <= max_w or size <= 10:
                 break
             size -= 1
         bbox = d.textbbox((0, 0), text, font=font)
         d.text(((64 - (bbox[2] - bbox[0])) / 2 - bbox[0], (64 - (bbox[3] - bbox[1])) / 2 - bbox[1]),
                text, font=font, fill=color)
         return img
+
+    @staticmethod
+    def _tray_font(size):
+        """匣圖示字型：Segoe UI Variable Bold（Win11）→ Segoe UI Bold → Arial Bold。"""
+        try:
+            f = ImageFont.truetype("SegUIVar.ttf", size)
+            f.set_variation_by_name("Bold")
+            return f
+        except (OSError, ValueError, AttributeError):
+            pass
+        for name in ("segoeuib.ttf", "arialbd.ttf"):
+            try:
+                return ImageFont.truetype(name, size)
+            except OSError:
+                continue
+        return None
+
+    @staticmethod
+    def _compact(left):
+        mins = -(-int(left.total_seconds()) // 60)
+        return f"{mins // 60}h" if mins >= 60 else f"{mins}m"
 
     # ---------- autostart（HKCU Run） ----------
     RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -243,22 +437,53 @@ class App:
         save_json(STATE_PATH, self.state)
         self.tray.update_menu()
 
+    def _open_dialog(self, name, factory):
+        dlg = self._dialogs.get(name)
+        if dlg is not None and dlg.winfo_exists():
+            dlg.deiconify(); dlg.lift(); dlg.focus_force()
+            return
+        self._dialogs[name] = factory()
+
     def ask_start(self):
         default = self.start.strftime("%H:%M") if self.start else "08:30"
-        s = simpledialog.askstring(APP_NAME, "今天上班刷卡時間 (HH:MM)：", initialvalue=default, parent=self.root)
-        if not s:
-            return
-        try:
-            t = parse_hhmm(s)
-        except ValueError:
-            messagebox.showerror(APP_NAME, "格式錯誤，請輸入像 08:42 這樣的時間"); return
-        self._set_start(datetime.combine(self.today, t), "手動")
+        self._open_dialog("start", lambda: StartTimeDialog(
+            self.root, self.config, default,
+            on_ok=lambda t: self._set_start(datetime.combine(self.today, t), "手動")))
 
-    def celebrate(self):
+    def open_settings(self):
+        self._open_dialog("settings", lambda: SettingsDialog(
+            self.root, self.config, on_ok=self._apply_settings,
+            on_preview=lambda style, minutes: self.celebrate(style, minutes, replay=True)))
+
+    def _apply_settings(self, new):
+        self.config = new
+        save_json(CONFIG_PATH, new)
+        self.root.attributes("-alpha", 1.0 if self._hover else new["idle_alpha"])
+        if self.style:                       # 樣式或顯示項目可能變了 → 重建
+            self.style.destroy()
+            self.style = None
+        self._refresh()
+
+    def celebrate(self, style=None, minutes=None, replay=False):
+        """播放下班前提示。replay=True（設定頁預覽）會中斷正在播的那個重新播。"""
         if self.celebration and self.celebration.alive:
-            return
-        mins = self.config["remind_before_min"]
-        self.celebration = Celebration(self.root, f"再 {mins} 分鐘下班！")
+            if not replay:
+                return
+            self.celebration.close()
+        r = self.root
+        if self.bar_hidden:
+            bar_rect, cx, cy = None, 0, 0
+        else:
+            x, y, w, h = r.winfo_x(), r.winfo_y(), r.winfo_width(), r.winfo_height()
+            bar_rect, cx, cy = (x, y, x + w, y + h), x + w // 2, y + h // 2
+        sw, sh = r.winfo_screenwidth(), r.winfo_screenheight()
+        mon = monitor_rect(cx, cy) or (0, 0, sw, sh)
+        work = monitor_rect(cx, cy, work=True) or mon
+        end = self.off_time()
+        self.celebration = celebrate.play(
+            r, style or self.config["celebrate_style"],
+            self.config["remind_before_min"] if minutes is None else minutes,
+            f"{end:%H:%M}" if end else "--:--", mon, work, bar_rect)
 
     def quit(self):
         self.tray.stop()
@@ -268,39 +493,27 @@ class App:
     def _handle_queue(self):
         while True:
             try:
-                action, dt, err = self.q.get_nowait()
+                action = self.q.get_nowait()
             except queue.Empty:
                 return
-            if action == "mute": self.toggle_mute()
-            elif action == "ask_start": self.ask_start()
-            elif action == "celebrate": self.celebrate()
-            elif action == "toggle_bar": self.toggle_bar()
-            elif action == "autostart": self.toggle_autostart()
-            elif action == "quit": self.quit(); return
+            self._do(action)
+            if action == "quit":
+                return
 
-    def _loop(self):
-        self._handle_queue()
-        if not self.root.winfo_exists():
-            return
+    def _refresh(self):
         now = datetime.now()
-
-        if now.date() != self.today:           # 換日 → 重置
-            self.today = now.date()
-            self.start, self.source = None, ""
-            self.root.after(500, self.ask_start)
-
         end = self.off_time()
         if end is None:
-            bar = "尚未設定上班時間（右鍵設定）"
-            tray_txt, tip, color = "--:--", f"{APP_NAME}\n尚未設定上班時間", "#888888"
+            view = None
+            tray_txt, color, ratio, tip = "--", GRAY, None, f"{APP_NAME}\n尚未設定上班時間"
         else:
             left = end - now
+            color = self.stage_color(left)
+            span = (end - self.start).total_seconds()
+            ratio = min(max((now - self.start).total_seconds() / span, 0), 1) if span > 0 else 1
+            remain = fmt_delta(left)
             if left.total_seconds() > 0:
-                remain = fmt_delta(left)
-                bar = f"上班 {self.start:%H:%M} ｜ 下班 {end:%H:%M} ｜ 剩 {remain}"
-                tray_txt = remain
-                warn = left <= timedelta(minutes=self.config["warn_before_min"])
-                color = "#ff4d6d" if warn else "#4cc9f0"
+                tray_txt = self._compact(left)
                 tip = f"下班 {end:%H:%M}（剩 {remain}）\n上班 {self.start:%H:%M}"
                 remind_at = end - timedelta(minutes=self.config["remind_before_min"])
                 if now >= remind_at and not self.celebrated and not self.muted:
@@ -308,17 +521,37 @@ class App:
                     save_json(STATE_PATH, self.state)
                     self.celebrate()
             else:
-                bar = f"可以下班了！已超過 {fmt_delta(left)}"
-                tray_txt, color = fmt_delta(left), "#06d6a0"
-                tip = f"已過下班時間 {end:%H:%M}"
+                tray_txt = "OK"
+                tip = f"已過下班時間 {end:%H:%M}（+{remain}）"
             if self.muted:
                 tip += "\n（今日特效已暫停）"
+            day = self.start.date()
+            ls = datetime.combine(day, parse_hhmm(self.config["lunch_start"]))
+            le = datetime.combine(day, parse_hhmm(self.config["lunch_end"]))
+            pos = (lambda t: min(max((t - self.start).total_seconds() / span, 0), 1)) if span > 0 else (lambda t: 0)
+            view = {"start": f"{self.start:%H:%M}", "end": f"{end:%H:%M}", "remain": remain,
+                    "over": left.total_seconds() <= 0, "color": color, "ratio": ratio,
+                    "lunch": (pos(ls), pos(le)), "in_lunch": ls <= now < le}
 
-        self.label.config(text=bar, fg=color if end else "#cdd6f4")
-        if (tray_txt, color) != self._tray_text:
-            self._tray_text = (tray_txt, color)
-            self.tray.icon = self._tray_image(tray_txt, color)
+        self._render_bar(view)
+        key = (tray_txt, color, None if ratio is None else round(ratio * 50))
+        if key != self._tray_key:
+            self._tray_key = key
+            self.tray.icon = self._tray_image(tray_txt, color, ratio)
         self.tray.title = tip[:127]
+
+    def _loop(self):
+        self._handle_queue()
+        try:
+            if not self.root.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        if date.today() != self.today:           # 換日 → 重置
+            self.today = date.today()
+            self.start, self.source = None, ""
+            self.root.after(500, self.ask_start)
+        self._refresh()
         self.root.after(1000, self._loop)
 
     def run(self):

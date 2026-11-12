@@ -3,7 +3,14 @@ from datetime import datetime, time, timedelta
 
 
 def parse_hhmm(s: str) -> time:
-    h, m = s.strip().split(":")
+    """接受 08:42、8:42、08：42（全形冒號）、0842、842。格式錯誤丟 ValueError。"""
+    s = s.strip().replace("：", ":")
+    if ":" in s:
+        h, m = s.split(":")
+    elif s.isdigit() and len(s) in (3, 4):
+        h, m = s[:-2], s[-2:]
+    else:
+        raise ValueError(f"bad time: {s!r}")
     return time(int(h), int(m))
 
 

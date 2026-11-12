@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>下班計時器 UI 原型</title>
+<!--
+  PROTOTYPE（用完即丟）：下班計時器的浮動條、下班前提示畫面、中英字型該怎麼選？
+  直接用瀏覽器開啟（雙擊）即可，不需聯網；字型全用 Windows 內建字型。
+  ←/→ 版本　↑/↓ 情境　F 字型　空白鍵 重播提示　網址參數可分享目前組合（?view=bar&bar=B&font=2&scene=3）
+-->
+<style>
+  :root {
+    --bg: #1e1e2e; --surface: #313244; --text: #cdd6f4; --sub: #7f849c;
+    --zh: "Microsoft JhengHei UI", "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif;
+    --num: var(--zh);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #12121a; color: #ddd; font-family: var(--zh); font-size: 14px; padding-bottom: 90px; }
+  header { position: sticky; top: 0; z-index: 10; background: #12121aee; backdrop-filter: blur(6px);
+           border-bottom: 1px solid #2a2a3a; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  header h1 { font-size: 15px; margin: 0; color: #fff; }
+  header h1 small { color: #f0a; font-weight: normal; margin-left: 6px; font-size: 11px; letter-spacing: .05em; }
+  .seg { display: inline-flex; border: 1px solid #3a3a4c; border-radius: 8px; overflow: hidden; }
+  .seg button { background: none; border: 0; color: #aab; padding: 5px 10px; font: inherit; cursor: pointer; }
+  .seg button + button { border-left: 1px solid #3a3a4c; }
+  .seg button.on { background: #4cc9f0; color: #111; font-weight: bold; }
+  .ctl { display: flex; align-items: center; gap: 6px; color: #889; font-size: 12px; }
+  select, .btn { background: #22222f; color: #ddd; border: 1px solid #3a3a4c; border-radius: 8px; padding: 5px 8px; font: inherit; cursor: pointer; }
+  .btn:hover { border-color: #4cc9f0; }
+  #state { width: 100%; font-family: Consolas, monospace; font-size: 11px; color: #778; }
+  main { max-width: 1240px; margin: 0 auto; padding: 16px; }
+  h2 { font-size: 14px; color: #aab; margin: 26px 0 10px; font-weight: normal; }
+  h2 b { color: #fff; }
+
+  /* ---------- 模擬桌面（內部 1920×1080，縮放顯示，比例正確） ---------- */
+  #deskWrap { position: relative; width: 100%; border-radius: 10px; overflow: hidden; box-shadow: 0 6px 30px #0008; }
+  #desk { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0;
+          background: radial-gradient(1200px 700px at 30% 30%, #3b5a9a, #1b2440 70%); }
+  .fakewin { position: absolute; left: 260px; top: 140px; width: 1100px; height: 640px; background: #f3f3f3; border-radius: 10px;
+             box-shadow: 0 20px 60px #0007; overflow: hidden; }
+  .fakewin .tb { height: 40px; background: #e6e6e6; display: flex; align-items: center; padding-left: 16px; color: #555; font-size: 16px; }
+  .fakewin .ln { height: 14px; background: #d9d9d9; border-radius: 7px; margin: 22px 40px 0; }
+  .taskbar { position: absolute; left: 0; right: 0; bottom: 0; height: 48px; background: #202020f0; display: flex;
+             align-items: center; justify-content: center; gap: 10px; }
+  .taskbar i { width: 34px; height: 34px; border-radius: 6px; background: #ffffff22; }
+  .taskbar .tray { position: absolute; right: 16px; color: #eee; font-size: 13px; text-align: right; line-height: 1.3; font-family: "Segoe UI", sans-serif; }
+  #barSlot { position: absolute; right: 12px; bottom: 56px; }
+  #fx { position: absolute; inset: 0; pointer-events: none; }
+
+  /* ---------- 浮動條：共用 ---------- */
+  .zh { font-family: var(--zh); }
+  .num { font-family: var(--num); font-variant-numeric: tabular-nums; }
+  .bar { display: inline-block; background: var(--bg); color: var(--text); border-radius: 8px; overflow: hidden;
+         box-shadow: 0 2px 10px #0006; white-space: nowrap; line-height: 1.25; user-select: none; }
+  /* A 現行 */
+  .a .row { display: flex; align-items: baseline; padding: 3px 12px; gap: 3px; }
+  .a .g { margin-left: 9px; }
+  .a .sub { font-size: 9pt; color: var(--sub); }
+  .a .rt { font-size: 11pt; font-weight: bold; }
+  .a .rn { font-size: 13pt; font-weight: bold; }
+  .a .prog { height: 3px; background: var(--surface); }
+  .a .prog i { display: block; height: 100%; }
+  /* B 膠囊 */
+  .b { display: inline-flex; align-items: center; padding: 1px 14px; border-radius: 12px; cursor: default; }
+  .b .detail { display: none; margin-right: 10px; font-size: 10pt; }
+  .b:hover .detail, .b.hover .detail { display: inline; }
+  .b .big { font-size: 18pt; font-weight: bold; }
+  /* C 進度條 */
+  .c { position: relative; width: 290px; height: 28px; background: var(--surface); }
+  .c .fill { position: absolute; left: 0; top: 0; bottom: 0; }
+  .c .lunch { position: absolute; bottom: 0; height: 3px; background: var(--sub); }
+  .c .t { position: absolute; top: 50%; transform: translateY(-50%); font-size: 9pt; }
+  .c .mid { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #fff; font-weight: bold; }
+  /* D 卡片 */
+  .d { width: 230px; padding: 7px 12px 10px; border-radius: 10px; }
+  .d .l1 { font-size: 9pt; color: var(--sub); }
+  .d .l1 b { color: var(--text); }
+  .d .l2 { display: flex; justify-content: space-between; align-items: baseline; margin: 1px 0 6px; }
+  .d .l2 .num { font-size: 22pt; font-weight: bold; }
+  .d .l2 .zh { font-size: 9pt; color: var(--sub); }
+  .d .tl { position: relative; height: 5px; border-radius: 3px; background: var(--surface); }
+  .d .tl .f { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+  .d .tl .lu { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(90deg, #7f849c 0 2px, transparent 2px 4px); }
+  .d .tl .dot { position: absolute; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%;
+                background: var(--text); border: 2px solid var(--bg); }
+  /* E 圓環 */
+  .e { position: relative; width: 96px; height: 96px; border-radius: 50%; }
+  .e svg { position: absolute; inset: 0; }
+  .e .big { position: absolute; left: 0; right: 0; top: 30px; text-align: center; font-size: 14pt; font-weight: bold; }
+  .e .small { position: absolute; left: 0; right: 0; top: 58px; text-align: center; font-size: 7.5pt; color: var(--sub); }
+
+  /* ---------- 一覽 ---------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+  .cell { background: #1a1a26; border: 1px solid #2a2a3a; border-radius: 10px; padding: 10px 12px; cursor: pointer; }
+  .cell.on { border-color: #4cc9f0; }
+  .cell .cap { font-size: 12px; color: #99a; margin-bottom: 10px; }
+  .cell .stage { min-height: 100px; display: flex; align-items: center; justify-content: flex-end; padding: 10px;
+                 background: linear-gradient(135deg, #2f4a80, #1b2440); border-radius: 8px; }
+  .fontrow { display: grid; grid-template-columns: 230px 1fr; align-items: center; gap: 12px; padding: 8px 12px;
+             background: #1a1a26; border: 1px solid #2a2a3a; border-radius: 10px; margin-bottom: 8px; cursor: pointer; }
+  .fontrow.on { border-color: #4cc9f0; }
+  .fontrow .cap { font-size: 12px; color: #99a; }
+  .fontrow .stage { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .fontrow .sample { font-family: var(--num); font-size: 20pt; font-weight: bold; color: #ffd166; font-variant-numeric: tabular-nums; }
+  .note { font-size: 12px; color: #889; line-height: 1.7; }
+
+  /* ---------- 原型切換列（刻意做成白色膠囊，跟設計本身區隔） ---------- */
+  #switcher { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 20; background: #f5f5f5; color: #111;
+              border-radius: 999px; padding: 6px 10px; box-shadow: 0 6px 24px #000a; display: flex; align-items: center; gap: 4px;
+              font-family: "Microsoft JhengHei UI", sans-serif; }
+  #switcher button { border: 0; background: none; font-size: 16px; cursor: pointer; padding: 2px 8px; color: #111; }
+  #switcher .lbl { min-width: 230px; text-align: center; font-weight: bold; font-size: 13px; }
+  #switcher .hint { font-size: 10px; color: #888; margin-left: 6px; }
+  @media (max-width: 640px) { #switcher .hint { display: none; } #switcher .lbl { min-width: 150px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>下班計時器 UI 原型<small>PROTOTYPE</small></h1>
+  <div class="seg" id="viewSeg">
+    <button data-v="bar">浮動條</button><button data-v="fx">下班前提示畫面</button>
+  </div>
+  <div class="ctl" id="sceneCtl">情境 <div class="seg" id="sceneSeg"></div></div>
+  <div class="ctl">字型 <select id="fontSel"></select></div>
+  <button class="btn" id="replay">▶ 重播提示</button>
+  <div id="state"></div>
+</header>
+
+<main>
+  <h2 id="deskTitle"></h2>
+  <div id="deskWrap">
+    <div id="desk">
+      <div class="fakewin"><div class="tb">報表.xlsx － 工作中的視窗</div>
+        <div class="ln" style="width:70%"></div><div class="ln" style="width:85%"></div><div class="ln" style="width:60%"></div>
+        <div class="ln" style="width:78%"></div><div class="ln" style="width:50%"></div><div class="ln" style="width:82%"></div>
+      </div>
+      <div id="barSlot"></div>
+      <canvas id="fx" width="1920" height="1080"></canvas>
+      <div class="taskbar"><i></i><i></i><i></i><i></i><i></i><i></i>
+        <div class="tray">ZH-TW　17:15<br>2026/11/12</div></div>
+    </div>
+  </div>
+
+  <section id="barExtra">
+    <h2><b>實際大小・全部版本</b>（目前字型＋情境；點一下切換；B 版滑鼠移上去會展開）</h2>
+    <div class="grid" id="overview"></div>
+    <h2><b>字型對照</b>（目前版本 × 5 組字型；中文一律微軟正黑體 UI，只換數字／英文）</h2>
+    <div id="fontTable"></div>
+    <p class="note">Segoe UI Variable 與 Cascadia Mono 只有 Windows 11 內建；若選用，正式版會加上退回 Segoe UI／Consolas 的機制。
+      所有字型都用 <code>tabular-nums</code>（等寬數字），倒數時數字不會左右跳動。</p>
+  </section>
+  <section id="fxExtra">
+    <p class="note">提示畫面在正式版都會「滑鼠可穿透」並自動消失，不會擋住工作。A 約 9 秒、B／C 約 7 秒、D 約 6 秒。按空白鍵或「重播提示」再播一次。</p>
+  </section>
+</main>
+
+<div id="switcher">
+  <button id="prev" title="上一個版本 (←)">◀</button>
+  <span class="lbl" id="swLabel"></span>
+  <button id="next" title="下一個版本 (→)">▶</button>
+  <span class="hint">←/→ 版本　↑/↓ 情境　F 字型　空白鍵 重播</span>
+</div>
+
+<script>
+const ZH = '"Microsoft JhengHei UI","Microsoft JhengHei","PingFang TC","Noto Sans TC",sans-serif';
+const FONTSETS = [
+  ["現行：正黑體 UI（中英同字）", ZH],
+  ["正黑體 UI ＋ Segoe UI Variable", '"Segoe UI Variable Display","Segoe UI"'],
+  ["正黑體 UI ＋ Bahnschrift", 'Bahnschrift,"DIN Alternate"'],
+  ["正黑體 UI ＋ Cascadia Mono", '"Cascadia Mono",Consolas,monospace'],
+  ["正黑體 UI ＋ Consolas", 'Consolas,monospace'],
+];
+const numFont = i => i === 0 ? ZH : FONTSETS[i][1] + "," + ZH;
+const C = { bg: "#1e1e2e", surface: "#313244", text: "#cdd6f4", sub: "#7f849c",
+            blue: "#4cc9f0", yellow: "#ffd166", red: "#ff4d6d", green: "#06d6a0" };
+const COLORS = ["#ff4d6d", "#ffd166", "#06d6a0", "#4cc9f0", "#c77dff", "#ff9f1c", "#f72585", "#90e0ef", "#ffffff"];
+
+// 上班 08:30、工時 8h、午休 12:00–13:30 → 下班 18:00（分鐘數）
+const START = 510, END = 1080, LUNCH = [720, 810], REMIND = 10;
+const SCENES = [
+  ["剩 3 小時多（藍）", END - 192], ["午休中", 760], ["剩 45 分（黃）", END - 45],
+  ["剩 12 分（紅）", END - 12], ["已超時 15 分（綠）", END + 15], ["現在（實際時間）", null],
+];
+
+const S = { view: "bar", bar: 0, fx: 0, font: 0, scene: 2 };
+const $ = s => document.querySelector(s);
+const pad = n => String(n).padStart(2, "0");
+const hhmm = m => pad(Math.floor(m / 60)) + ":" + pad(m % 60);
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = a => a[Math.floor(Math.random() * a.length)];
+
+function mix(c1, c2, t) {
+  const p = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+  const a = p(c1), b = p(c2);
+  return "#" + a.map((x, i) => Math.round(x * t + b[i] * (1 - t)).toString(16).padStart(2, "0")).join("");
+}
+
+function makeView(sceneIdx) {
+  const sc = SCENES[sceneIdx];
+  const d = new Date();
+  const now = sc[1] ?? d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+  const left = END - now;
+  const mins = left > 0 ? Math.ceil(left - 1e-9) : Math.floor(-left);
+  const color = left <= 0 ? C.green : left <= 30 ? C.red : left <= 60 ? C.yellow : C.blue;
+  return {
+    start: hhmm(START), end: hhmm(END), remain: hhmm(mins), over: left <= 0, color,
+    ratio: Math.min(Math.max((now - START) / (END - START), 0), 1),
+    lunch: LUNCH.map(m => (m - START) / (END - START)),
+    inLunch: now >= LUNCH[0] && now < LUNCH[1],
+  };
+}
+
+// ---------------- 浮動條版本 ----------------
+const barA = v => `<div class="bar a"><div class="row">
+  <span class="zh sub">上班</span><span class="num sub">${v.start}</span>
+  <span class="zh sub g">下班</span><span class="num sub">${v.end}</span>
+  <span class="zh rt g" style="color:${v.color}">${v.over ? "可以下班了 +" : "剩"}</span><span class="num rn" style="color:${v.color}">${v.remain}</span>
+  </div><div class="prog"><i style="width:${v.ratio * 100}%;background:${v.color}"></i></div></div>`;
+
+const barB = v => `<div class="bar b" style="background:${mix(v.color, C.bg, .22)}">
+  <span class="num detail">${v.start} → ${v.end}</span>
+  <span class="num big" style="color:${v.color}">${v.over ? "+" : ""}${v.remain}</span></div>`;
+
+const barC = v => `<div class="bar c">
+  <div class="fill" style="width:${v.ratio * 100}%;background:${mix(v.color, C.bg, .45)}"></div>
+  <div class="lunch" style="left:${v.lunch[0] * 100}%;width:${(v.lunch[1] - v.lunch[0]) * 100}%"></div>
+  <span class="t num" style="left:8px;color:${mix(C.text, C.bg, .7)}">${v.start}</span>
+  <span class="mid"><span class="zh" style="font-size:10pt">${v.over ? "下班囉 +" : "剩 "}</span><span class="num" style="font-size:12pt">${v.remain}</span></span>
+  <span class="t num" style="right:8px;font-weight:bold">${v.end}</span></div>`;
+
+const barD = v => `<div class="bar d">
+  <div class="l1"><span class="num">${v.start}</span> 上班　→　<b class="num">${v.end}</b> 下班</div>
+  <div class="l2"><span class="num" style="color:${v.color}">${v.over ? "+" : ""}${v.remain}</span>
+    <span class="zh">${v.over ? "已超時" : v.inLunch ? "午休中" : "剩餘"}</span></div>
+  <div class="tl"><div class="f" style="width:${v.ratio * 100}%;background:${v.color}"></div>
+    <div class="lu" style="left:${v.lunch[0] * 100}%;width:${(v.lunch[1] - v.lunch[0]) * 100}%"></div>
+    <div class="dot" style="left:${v.ratio * 100}%"></div></div></div>`;
+
+function barE(v) {
+  const r = 39.5, circ = 2 * Math.PI * r;
+  return `<div class="bar e"><svg viewBox="0 0 96 96">
+    <circle cx="48" cy="48" r="${r}" fill="none" stroke="${C.surface}" stroke-width="7"/>
+    <circle cx="48" cy="48" r="${r}" fill="none" stroke="${v.color}" stroke-width="7"
+      stroke-dasharray="${circ * v.ratio} ${circ}" transform="rotate(-90 48 48)"/></svg>
+    <div class="big num" style="color:${v.color}">${v.over ? "+" : ""}${v.remain}</div>
+    <div class="small"><span class="zh">下班 </span><span class="num">${v.end}</span></div></div>`;
+}
+
+const BAR_V = [["A", "現行：橫向資訊列", barA], ["B", "大字膠囊（移上去才展開）", barB],
+               ["C", "整條就是進度條", barC], ["D", "雙行卡片＋時間軸", barD], ["E", "圓環小工具", barE]];
+
+// ---------------- 提示畫面版本（canvas，內部座標 1920×1080；以 33ms 為一幀、依實際時間推進） ----------------
+const W = 1920, H = 1080, TASKBAR = 48;
+const fz = (pt, bold) => `${bold ? "bold " : ""}${pt}pt ${ZH}`;
+const fn = (pt, bold) => `${bold ? "bold " : ""}${pt}pt ${numFont(S.font)}`;
+const ease = t => 1 - Math.pow(1 - Math.min(Math.max(t, 0), 1), 3);
+
+function mixed(ctx, x, y, parts, align = "left") {
+  ctx.textBaseline = "middle";
+  const ws = parts.map(([t, f]) => { ctx.font = f; return ctx.measureText(t).width; });
+  const total = ws.reduce((a, b) => a + b, 0);
+  let x0 = align === "center" ? x - total / 2 : align === "right" ? x - total : x;
+  parts.forEach(([t, f, c], i) => { ctx.font = f; ctx.fillStyle = c; ctx.textAlign = "left"; ctx.fillText(t, x0, y); x0 += ws[i]; });
+}
+const msgParts = (zs, ns, color) => [["再 ", fz(zs, true), color], [String(REMIND), fn(ns, true), color], [" 分鐘下班！", fz(zs, true), color]];
+
+function fxA() {   // 現行：全螢幕煙火＋彩帶＋中央大字
+  const total = 272, rockets = [], sparks = [];
+  const newConf = init => ({ x: rand(0, W), y: init ? rand(-H, 0) : rand(-80, -10), vy: rand(2, 5), vx: rand(-1, 1),
+    a: rand(0, Math.PI), va: rand(-.2, .2), sway: rand(0, 2 * Math.PI), size: rand(6, 12), c: pick(COLORS) });
+  const conf = Array.from({ length: 160 }, () => newConf(true));
+  return { total,
+    step(f) {
+      const ending = f > total - 60;
+      if (!ending && f % 18 === 0) rockets.push({ x: rand(W * .15, W * .85), y: H, vx: rand(-1.5, 1.5), vy: -rand(13, 18), c: pick(COLORS) });
+      for (const r of [...rockets]) {
+        r.x += r.vx; r.y += r.vy; r.vy += .18;
+        if (r.vy >= -1) {
+          rockets.splice(rockets.indexOf(r), 1);
+          const n = Math.floor(rand(50, 80)), sp0 = rand(4, 7);
+          for (let i = 0; i < n; i++) { const a = 2 * Math.PI * i / n, sp = sp0 * rand(.6, 1);
+            sparks.push({ x: r.x, y: r.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: Math.floor(rand(35, 55)), c: r.c }); }
+        }
+      }
+      for (const s of [...sparks]) { s.x += s.vx; s.y += s.vy; s.vx *= .97; s.vy = s.vy * .97 + .12;
+        if (--s.life <= 0) sparks.splice(sparks.indexOf(s), 1); }
+      for (const c of conf) { c.sway += .05; c.a += c.va; c.x += c.vx + Math.sin(c.sway); c.y += c.vy;
+        if (c.y > H + 20 && !ending) Object.assign(c, newConf(false)); }
+    },
+    draw(ctx) {
+      for (const r of rockets) { ctx.fillStyle = r.c; ctx.beginPath(); ctx.arc(r.x, r.y, 3, 0, 7); ctx.fill(); }
+      for (const s of sparks) { ctx.fillStyle = s.c; ctx.beginPath(); ctx.arc(s.x, s.y, Math.max(1, s.life / 14), 0, 7); ctx.fill(); }
+      for (const c of conf) { ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.a); ctx.fillStyle = c.c;
+        ctx.fillRect(-c.size, -c.size * .35, c.size * 2, c.size * .7); ctx.restore(); }
+      const cx = W / 2, cy = H * .4;
+      for (const [ox, oy] of [[3, 3], [-2, 2], [2, -2]]) mixed(ctx, cx + ox, cy + oy, msgParts(54, 54, "#222"), "center");
+      mixed(ctx, cx, cy, msgParts(54, 54, "#ffd166"), "center");
+    } };
+}
+
+function fxB() {   // 右下角通知卡
+  const total = 212, cw = 360, ch = 112, parts = [];
+  const pos = f => { const sl = f < total - 14 ? ease(f / 14) : ease((total - f) / 14);
+    return [W - 12 - cw + (1 - sl) * (cw + 20), H - TASKBAR - 56 - ch]; };
+  return { total,
+    step(f) {
+      if (f === 14) { const [x0, y0] = pos(f);
+        for (let i = 0; i < 70; i++) parts.push({ x: x0 + cw / 2 + rand(-cw / 3, cw / 3), y: y0, vx: rand(-3.5, 3.5), vy: -rand(5, 11),
+          c: pick(COLORS), s: rand(3, 6), life: 70 }); }
+      for (const p of [...parts]) { p.x += p.vx; p.y += p.vy; p.vy += .35; p.vx *= .98;
+        if (--p.life <= 0) parts.splice(parts.indexOf(p), 1); }
+    },
+    draw(ctx, f) {
+      for (const p of parts) { ctx.fillStyle = p.c; ctx.fillRect(p.x - p.s, p.y - p.s / 2, p.s * 2, p.s); }
+      const [x0, y0] = pos(f);
+      ctx.beginPath(); ctx.roundRect(x0, y0, cw, ch, 16); ctx.fillStyle = C.bg; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = C.yellow; ctx.stroke();
+      ctx.fillStyle = C.yellow; ctx.fillRect(x0 + 2, y0 + 18, 5, ch - 36);
+      mixed(ctx, x0 + 22, y0 + 36, msgParts(16, 22, C.yellow));
+      mixed(ctx, x0 + 22, y0 + 72, [[hhmm(END), fn(11, true), C.text], [" 下班・記得存檔、收桌面", fz(10), C.sub]]);
+      ctx.strokeStyle = C.surface; ctx.lineWidth = 3; ctx.beginPath();
+      ctx.moveTo(x0 + 22, y0 + ch - 16); ctx.lineTo(x0 + 22 + (cw - 44) * (1 - f / total), y0 + ch - 16); ctx.stroke();
+    } };
+}
+
+function fxC() {   // 頂部橫幅＋倒數
+  const total = 212, BH = 76;
+  const stars = Array.from({ length: 40 }, () => [rand(0, W), rand(8, BH - 10), rand(0, 2 * Math.PI), pick(COLORS)]);
+  return { total,
+    draw(ctx, f) {
+      const sl = f < total - 12 ? ease(f / 12) : ease((total - f) / 12);
+      ctx.save(); ctx.translate(0, -BH + BH * sl);
+      ctx.fillStyle = mix(C.yellow, C.bg, .16); ctx.fillRect(0, 0, W, BH);
+      ctx.fillStyle = C.yellow; ctx.fillRect(0, BH - 3, W, 3);
+      for (const [x, y, ph, c] of stars) {
+        const r = 2 + 3 * Math.max(0, Math.sin(f * .18 + ph));
+        ctx.fillStyle = c; ctx.beginPath();
+        [[0, -2], [.5, -.5], [2, 0], [.5, .5], [0, 2], [-.5, .5], [-2, 0], [-.5, -.5]].forEach(([dx, dy], i) =>
+          i ? ctx.lineTo(x + dx * r, y + dy * r) : ctx.moveTo(x + dx * r, y + dy * r));
+        ctx.fill();
+      }
+      mixed(ctx, 40, BH / 2 - 2, [...msgParts(18, 24, C.yellow), ["　 ", fz(10), C.text],
+        [hhmm(END), fn(12, true), C.text], [" 下班", fz(11), C.sub]]);
+      const secs = Math.max(0, REMIND * 60 - Math.floor(f * 33 / 1000));
+      mixed(ctx, W - 40, BH / 2 - 2, [[pad(Math.floor(secs / 60)) + ":" + pad(secs % 60), fn(24, true), C.text]], "right");
+      ctx.restore();
+    } };
+}
+
+function fxD() {   // 螢幕邊緣光暈
+  const total = 182, seg = 90;
+  return { total,
+    draw(ctx, f) {
+      const fade = Math.min(1, f / 10, (total - f) / 15), t = (8 + 6 * Math.sin(f * .18)) * fade, shift = f * 4;
+      for (let edge = 0; edge < 4; edge++) {
+        const len = edge % 2 ? H : W;
+        for (let i = -1; i < len / seg + 2; i++) {
+          const a = i * seg + shift % seg, b = a + seg;
+          ctx.fillStyle = COLORS[(((i - Math.floor(shift / seg) + edge * 3) % COLORS.length) + COLORS.length) % COLORS.length];
+          if (edge === 0) ctx.fillRect(a, 0, seg, t);
+          else if (edge === 1) ctx.fillRect(W - t, a, t, seg);
+          else if (edge === 2) ctx.fillRect(W - b, H - t, seg, t);
+          else ctx.fillRect(0, H - b, t, seg);
+        }
+      }
+      if (f < 85) {
+        const pop = f < 70 ? ease(f / 10) : ease((85 - f) / 15), size = Math.max(1, Math.round(56 * pop));
+        for (const [ox, oy] of [[3, 3], [-2, 2], [2, -2]]) mixed(ctx, W / 2 + ox, H * .42 + oy, msgParts(size, Math.round(size * 1.3), "#222"), "center");
+        mixed(ctx, W / 2, H * .42, msgParts(size, Math.round(size * 1.3), C.yellow), "center");
+      }
+    } };
+}
+
+const FX_V = [["A", "現行：全螢幕煙火＋彩帶", fxA], ["B", "右下角通知卡", fxB], ["C", "頂部橫幅＋倒數", fxC], ["D", "螢幕邊緣光暈", fxD]];
+
+let fxRaf = null;
+function playFx() {
+  stopFx();
+  const fx = FX_V[S.fx][2](), ctx = $("#fx").getContext("2d"), t0 = performance.now();
+  let sf = 0;
+  const loop = now => {
+    const f = Math.floor((now - t0) / 33);
+    while (sf < f && sf < fx.total) { sf++; fx.step && fx.step(sf); }
+    ctx.clearRect(0, 0, W, H);
+    if (sf >= fx.total) { fxRaf = null; return; }
+    fx.draw(ctx, sf);
+    fxRaf = requestAnimationFrame(loop);
+  };
+  fxRaf = requestAnimationFrame(loop);
+}
+function stopFx() { if (fxRaf) cancelAnimationFrame(fxRaf); fxRaf = null; $("#fx").getContext("2d").clearRect(0, 0, W, H); }
+
+// ---------------- 畫面組裝 ----------------
+function render() {
+  document.documentElement.style.setProperty("--num", numFont(S.font));
+  const v = makeView(S.scene), isBar = S.view === "bar";
+  $("#barSlot").innerHTML = BAR_V[S.bar][2](v);
+  document.querySelectorAll("#viewSeg button").forEach(b => b.classList.toggle("on", b.dataset.v === S.view));
+  document.querySelectorAll("#sceneSeg button").forEach((b, i) => b.classList.toggle("on", i === S.scene));
+  $("#fontSel").value = S.font;
+  $("#sceneCtl").style.display = isBar ? "" : "none";
+  $("#replay").style.display = isBar ? "none" : "";
+  $("#barExtra").style.display = isBar ? "" : "none";
+  $("#fxExtra").style.display = isBar ? "none" : "";
+  const cur = isBar ? BAR_V[S.bar] : FX_V[S.fx];
+  $("#swLabel").textContent = `${cur[0]} · ${cur[1]}`;
+  $("#deskTitle").innerHTML = isBar
+    ? `<b>浮動條 ${cur[0]}</b>　放在桌面右下角（工作列上方）的樣子`
+    : `<b>提示畫面 ${cur[0]}</b>　下班前 ${REMIND} 分鐘跳出的樣子（浮動條用目前選的版本 ${BAR_V[S.bar][0]}）`;
+
+  if (isBar) {
+    $("#overview").innerHTML = BAR_V.map(([k, name, fnc], i) =>
+      `<div class="cell ${i === S.bar ? "on" : ""}" data-i="${i}"><div class="cap">${k} · ${name}</div><div class="stage">${fnc(v)}</div></div>`).join("");
+    $("#fontTable").innerHTML = FONTSETS.map(([name], i) =>
+      `<div class="fontrow ${i === S.font ? "on" : ""}" data-i="${i}" style="--num:${numFont(i).replace(/"/g, "&quot;")}">
+        <div class="cap">${i} · ${name}</div>
+        <div class="stage">${BAR_V[S.bar][2](v)}<span class="sample">03:12　+00:15　18:00</span></div></div>`).join("");
+  }
+  $("#state").textContent = `view=${S.view}  bar=${BAR_V[S.bar][0]}  fx=${FX_V[S.fx][0]}  font=${S.font}(${FONTSETS[S.font][0]})  ` +
+    `scene=${SCENES[S.scene][0]}  remain=${v.remain}  color=${v.color}  ratio=${v.ratio.toFixed(2)}  lunch=${v.inLunch}`;
+  const q = new URLSearchParams({ view: S.view, bar: BAR_V[S.bar][0], fx: FX_V[S.fx][0], font: S.font, scene: S.scene });
+  try { history.replaceState(null, "", "?" + q); } catch (e) { /* file:// 某些瀏覽器不允許，忽略 */ }
+}
+
+function fitDesk() {
+  const w = $("#deskWrap").clientWidth;
+  $("#deskWrap").style.height = (w * 9 / 16) + "px";
+  $("#desk").style.transform = `scale(${w / 1920})`;
+}
+
+function cycle(d) {
+  if (S.view === "bar") S.bar = (S.bar + d + BAR_V.length) % BAR_V.length;
+  else { S.fx = (S.fx + d + FX_V.length) % FX_V.length; }
+  render();
+  if (S.view === "fx") playFx();
+}
+function setView(v) { S.view = v; render(); v === "fx" ? playFx() : stopFx(); }
+
+// ---------------- 初始化 ----------------
+(function init() {
+  const q = new URLSearchParams(location.search);
+  const idx = (list, key) => Math.max(0, list.findIndex(x => x[0] === key));
+  if (q.get("view") === "fx") S.view = "fx";
+  if (q.get("bar")) S.bar = idx(BAR_V, q.get("bar"));
+  if (q.get("fx")) S.fx = idx(FX_V, q.get("fx"));
+  if (q.get("font")) S.font = Math.min(FONTSETS.length - 1, +q.get("font") || 0);
+  if (q.get("scene")) S.scene = Math.min(SCENES.length - 1, +q.get("scene") || 0);
+
+  $("#sceneSeg").innerHTML = SCENES.map(([n]) => `<button>${n}</button>`).join("");
+  document.querySelectorAll("#sceneSeg button").forEach((b, i) => b.onclick = () => { S.scene = i; render(); });
+  $("#fontSel").innerHTML = FONTSETS.map(([n], i) => `<option value="${i}">${i} · ${n}</option>`).join("");
+  $("#fontSel").onchange = e => { S.font = +e.target.value; render(); if (S.view === "fx") playFx(); };
+  document.querySelectorAll("#viewSeg button").forEach(b => b.onclick = () => setView(b.dataset.v));
+  $("#replay").onclick = playFx;
+  $("#prev").onclick = () => cycle(-1);
+  $("#next").onclick = () => cycle(1);
+  $("#overview").onclick = e => { const c = e.target.closest(".cell"); if (c) { S.bar = +c.dataset.i; render(); } };
+  $("#fontTable").onclick = e => { const c = e.target.closest(".fontrow"); if (c) { S.font = +c.dataset.i; render(); } };
+
+  document.addEventListener("keydown", e => {
+    if (e.target.closest("input, textarea, select, [contenteditable]")) return;
+    if (e.key === "ArrowLeft") cycle(-1);
+    else if (e.key === "ArrowRight") cycle(1);
+    else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      S.scene = (S.scene + (e.key === "ArrowUp" ? -1 : 1) + SCENES.length) % SCENES.length; render();
+    } else if (e.key === "f" || e.key === "F") {
+      S.font = (S.font + (e.shiftKey ? -1 : 1) + FONTSETS.length) % FONTSETS.length; render(); if (S.view === "fx") playFx();
+    } else if (e.key === " ") { if (S.view === "fx") playFx(); }
+    else return;
+    e.preventDefault();
+  });
+
+  window.addEventListener("resize", fitDesk);
+  fitDesk();
+  render();
+  if (S.view === "fx") playFx();
+  setInterval(() => { if (SCENES[S.scene][1] === null) render(); }, 1000);
+})();
+</script>
+</body>
+</html>
