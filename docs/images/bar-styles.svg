@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="330" viewBox="0 0 800 330" role="img" aria-label="浮動條四種樣式">
+<title>浮動條四種樣式</title>
+<defs>
+<style>
+  .zh{font-family:'Microsoft JhengHei UI','Microsoft JhengHei','PingFang TC','Noto Sans TC','Noto Sans CJK TC',sans-serif}
+  .num{font-family:'Segoe UI Variable Display','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-variant-numeric:tabular-nums}
+  .sub{font-size:12px;fill:#7f849c}
+  .b{font-weight:700}
+</style>
+<linearGradient id="wall" x1="0" y1="0" x2="1" y2="1">
+  <stop offset="0" stop-color="#3b5a9a"/><stop offset="1" stop-color="#1b2440"/></linearGradient>
+<filter id="sh" x="-20%" y="-40%" width="140%" height="180%">
+  <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity=".45"/></filter>
+
+</defs>
+<rect width="800" height="330" rx="12" fill="url(#wall)"/><rect x="16" y="16" width="376" height="141" rx="10" fill="#000" fill-opacity=".18"/><text x="30" y="40" class="zh b" font-size="14" fill="#fff">橫向資訊列</text><text x="30" y="59" class="zh" font-size="11.5" fill="#c9d3f0">上下班時間＋剩餘時間＋進度線，可勾選顯示項目</text><g transform="translate(73,91)" filter="url(#sh)">
+  <clipPath id="bs1"><rect width="262" height="34" rx="8"/></clipPath>
+  <g clip-path="url(#bs1)">
+    <rect width="262" height="34" fill="#1e1e2e"/>
+    <rect y="31" width="262" height="3" fill="#313244"/>
+    <rect y="31" width="172.9" height="3" fill="#4cc9f0"/>
+  </g>
+  <text x="14" y="21.5"><tspan class="zh sub">上班</tspan><tspan class="num sub" dx="4">08:30</tspan><tspan class="zh sub" dx="11">下班</tspan><tspan class="num sub" dx="4">18:00</tspan><tspan class="zh b" dx="11" font-size="14" fill="#4cc9f0">剩</tspan><tspan class="num b" dx="4" font-size="17" fill="#4cc9f0">03:12</tspan></text>
+</g><rect x="408" y="16" width="376" height="141" rx="10" fill="#000" fill-opacity=".18"/><text x="422" y="40" class="zh b" font-size="14" fill="#fff">大字膠囊</text><text x="422" y="59" class="zh" font-size="11.5" fill="#c9d3f0">只顯示剩餘時間，底色隨階段變色</text><g filter="url(#sh)"><rect x="548.0" y="88.0" width="96" height="40" rx="12" fill="#284459"/></g><text x="596" y="116.5" text-anchor="middle" class="num b" font-size="24" fill="#4cc9f0">03:12</text><rect x="16" y="173" width="376" height="141" rx="10" fill="#000" fill-opacity=".18"/><text x="30" y="197" class="zh b" font-size="14" fill="#fff">雙行卡片＋時間軸</text><text x="30" y="216" class="zh" font-size="11.5" fill="#c9d3f0">時間軸標出午休與目前位置</text><g filter="url(#sh)"><rect x="89" y="225" width="230" height="76" rx="10" fill="#1e1e2e"/></g>
+<text x="101" y="242" font-size="12"><tspan class="num" fill="#7f849c">08:30</tspan><tspan class="zh" fill="#7f849c"> 上班　→　</tspan><tspan class="num b" fill="#cdd6f4">18:00</tspan><tspan class="zh" fill="#7f849c"> 下班</tspan></text>
+<text x="101" y="274" class="num b" font-size="29" fill="#4cc9f0">03:12</text>
+<text x="307" y="272" text-anchor="end" class="zh" font-size="12" fill="#7f849c">剩餘</text>
+<line x1="101" y1="289" x2="307" y2="289" stroke="#313244" stroke-width="5" stroke-linecap="round"/>
+<line x1="101" y1="289" x2="237.0" y2="289" stroke="#4cc9f0" stroke-width="5" stroke-linecap="round"/>
+<line x1="177.2" y1="289" x2="210.2" y2="289" stroke="#7f849c" stroke-width="5" stroke-dasharray="2 2"/>
+<circle cx="237.0" cy="289" r="5" fill="#cdd6f4" stroke="#1e1e2e" stroke-width="2"/><rect x="408" y="173" width="376" height="141" rx="10" fill="#000" fill-opacity=".18"/><text x="422" y="197" class="zh b" font-size="14" fill="#fff">圓環</text><text x="422" y="216" class="zh" font-size="11.5" fill="#c9d3f0">外環＝當日進度，中心＝剩餘時間</text><g filter="url(#sh)"><circle cx="596" cy="263" r="46.0" fill="#1e1e2e"/></g>
+<circle cx="596" cy="263" r="39.5" fill="none" stroke="#313244" stroke-width="7"/>
+<circle cx="596" cy="263" r="39.5" fill="none" stroke="#4cc9f0" stroke-width="7" stroke-dasharray="163.8 248.2" transform="rotate(-90 596 263)"/>
+<text x="596" y="264" text-anchor="middle" class="num b" font-size="19" fill="#4cc9f0">03:12</text>
+<text x="596" y="284" text-anchor="middle" font-size="10" fill="#7f849c"><tspan class="zh">下班 </tspan><tspan class="num">18:00</tspan></text>
+</svg>

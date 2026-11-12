@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="210" viewBox="0 0 800 210" role="img" aria-label="藍、紅、綠三種顏色狀態">
+<title>藍、紅、綠三種顏色狀態</title>
+<defs>
+<style>
+  .zh{font-family:'Microsoft JhengHei UI','Microsoft JhengHei','PingFang TC','Noto Sans TC','Noto Sans CJK TC',sans-serif}
+  .num{font-family:'Segoe UI Variable Display','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-variant-numeric:tabular-nums}
+  .sub{font-size:12px;fill:#7f849c}
+  .b{font-weight:700}
+</style>
+<linearGradient id="wall" x1="0" y1="0" x2="1" y2="1">
+  <stop offset="0" stop-color="#3b5a9a"/><stop offset="1" stop-color="#1b2440"/></linearGradient>
+<filter id="sh" x="-20%" y="-40%" width="140%" height="180%">
+  <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity=".45"/></filter>
+
+</defs>
+<rect width="800" height="210" rx="12" fill="url(#wall)"/><circle cx="48" cy="39" r="7" fill="#4cc9f0"/><text x="64" y="44" class="zh b" font-size="15" fill="#fff">藍色</text><text x="112" y="44" class="zh" font-size="14" fill="#dfe6ff">正常倒數</text><g transform="translate(330,22)" filter="url(#sh)">
+  <clipPath id="s0"><rect width="250" height="34" rx="8"/></clipPath>
+  <g clip-path="url(#s0)">
+    <rect width="250" height="34" fill="#1e1e2e"/>
+    <rect y="31" width="250" height="3" fill="#313244"/>
+    <rect y="31" width="165.0" height="3" fill="#4cc9f0"/>
+  </g>
+  <text x="14" y="21.5"><tspan class="zh sub">上班</tspan><tspan class="num sub" dx="4">08:30</tspan><tspan class="zh sub" dx="11">下班</tspan><tspan class="num sub" dx="4">18:00</tspan><tspan class="zh b" dx="11" font-size="14" fill="#4cc9f0">剩</tspan><tspan class="num b" dx="4" font-size="17" fill="#4cc9f0">03:12</tspan></text>
+</g><circle cx="48" cy="101" r="7" fill="#ff4d6d"/><text x="64" y="106" class="zh b" font-size="15" fill="#fff">紅色</text><text x="112" y="106" class="zh" font-size="14" fill="#dfe6ff">距離下班 30 分鐘內</text><g transform="translate(330,84)" filter="url(#sh)">
+  <clipPath id="s1"><rect width="250" height="34" rx="8"/></clipPath>
+  <g clip-path="url(#s1)">
+    <rect width="250" height="34" fill="#1e1e2e"/>
+    <rect y="31" width="250" height="3" fill="#313244"/>
+    <rect y="31" width="245.0" height="3" fill="#ff4d6d"/>
+  </g>
+  <text x="14" y="21.5"><tspan class="zh sub">上班</tspan><tspan class="num sub" dx="4">08:30</tspan><tspan class="zh sub" dx="11">下班</tspan><tspan class="num sub" dx="4">18:00</tspan><tspan class="zh b" dx="11" font-size="14" fill="#ff4d6d">剩</tspan><tspan class="num b" dx="4" font-size="17" fill="#ff4d6d">00:12</tspan></text>
+</g><circle cx="48" cy="163" r="7" fill="#06d6a0"/><text x="64" y="168" class="zh b" font-size="15" fill="#fff">綠色</text><text x="112" y="168" class="zh" font-size="14" fill="#dfe6ff">已可下班（顯示超時多久）</text><g transform="translate(330,146)" filter="url(#sh)">
+  <clipPath id="s2"><rect width="310" height="34" rx="8"/></clipPath>
+  <g clip-path="url(#s2)">
+    <rect width="310" height="34" fill="#1e1e2e"/>
+    <rect y="31" width="310" height="3" fill="#313244"/>
+    <rect y="31" width="310.0" height="3" fill="#06d6a0"/>
+  </g>
+  <text x="14" y="21.5"><tspan class="zh sub">上班</tspan><tspan class="num sub" dx="4">08:30</tspan><tspan class="zh sub" dx="11">下班</tspan><tspan class="num sub" dx="4">18:00</tspan><tspan class="zh b" dx="11" font-size="14" fill="#06d6a0">可以下班了 +</tspan><tspan class="num b" dx="4" font-size="17" fill="#06d6a0">00:15</tspan></text>
+</g>
+</svg>
