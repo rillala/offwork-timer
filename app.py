@@ -100,6 +100,16 @@ def force_topmost(win):
     _user32.SetWindowPos(hwnd_of(win), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE)
 
 
+def redraw_now(win):
+    """強制整個視窗立即重繪。半透明（layered）視窗同時移動＋改大小時，Windows 常沒重繪，
+    會殘留舊畫面（例如大字膠囊 hover 展開／收合時）。"""
+    if sys.platform != "win32":
+        return
+    RDW_INVALIDATE, RDW_ERASE, RDW_ALLCHILDREN, RDW_UPDATENOW, RDW_FRAME = 0x1, 0x4, 0x80, 0x100, 0x400
+    ctypes.windll.user32.RedrawWindow(hwnd_of(win), None, None,
+                                      RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW | RDW_FRAME)
+
+
 def round_corners(win, on=True):
     """Windows 11 圓角（on=False 取消，給圓環樣式用）；舊版 Windows 會靜默失敗。"""
     if sys.platform != "win32":
@@ -123,6 +133,7 @@ class App:
         self.celebration = None
         self._dialogs = {}
         self.style = None
+        self._style_preview = None      # 設定頁點選中的浮動條樣式（尚未儲存）
         self._bar_size = None
         self._hover = False
         self._menu_open = False
@@ -243,6 +254,8 @@ class App:
             y = min(max(y, mon[1]), mon[3] - h)
         root.geometry(f"+{x}+{y}")
         self._bar_size = (w, h)
+        root.update_idletasks()
+        redraw_now(root)
 
     def _drag_start(self, e):
         self._dx, self._dy = e.x_root - self.root.winfo_x(), e.y_root - self.root.winfo_y()
@@ -279,7 +292,8 @@ class App:
 
     def _render_bar(self, view):
         """view：見 bar_styles 模組說明；未設定上班時間時為 None。"""
-        cls = UnsetStyle if view is None else STYLES.get(self.config["bar_style"], STYLES["row"])
+        key = self._style_preview or self.config["bar_style"]
+        cls = UnsetStyle if view is None else STYLES.get(key, STYLES["row"])
         if type(self.style) is not cls:
             self._apply_bar_style(cls)
         if view is not None:
@@ -453,7 +467,22 @@ class App:
     def open_settings(self):
         self._open_dialog("settings", lambda: SettingsDialog(
             self.root, self.config, on_ok=self._apply_settings,
-            on_preview=lambda style, minutes: self.celebrate(style, minutes, replay=True)))
+            on_preview=lambda style, minutes: self.celebrate(style, minutes, replay=True),
+            on_bar_preview=self._preview_bar_style,
+            on_close=lambda: self._preview_bar_style(None)))
+
+    def _preview_bar_style(self, style):
+        """設定頁點選浮動條樣式時即時預覽；style=None 還原成已儲存的樣式。"""
+        if style == self._style_preview:
+            return
+        self._style_preview = style
+        try:
+            if self.style:
+                self.style.destroy()
+                self.style = None
+            self._refresh()
+        except tk.TclError:          # 程式結束時設定頁跟著被銷毀，浮動條已不存在
+            pass
 
     def _apply_settings(self, new):
         self.config = new

@@ -82,13 +82,11 @@ class _Dialog(tk.Toplevel):
         row.pack(fill="x")
         return row
 
-    def buttons(self, ok_text="確定", extra=None):
+    def buttons(self, ok_text="確定"):
         row = tk.Frame(self, bg=BG)
         row.pack(fill="x", pady=(14, 0))
         self.button(row, ok_text, self.submit, primary=True).pack(side="right")
         self.button(row, "取消", self.destroy).pack(side="right", padx=(0, 8))
-        if extra:
-            self.button(row, extra[0], extra[1]).pack(side="left")
 
     def submit(self):
         raise NotImplementedError
@@ -169,9 +167,14 @@ class SettingsDialog(_Dialog):
     SHOW = [("show_start", "上班時間"), ("show_end", "下班時間"),
             ("show_remain", "剩餘時間"), ("show_progress", "進度條")]
 
-    def __init__(self, root, cfg, on_ok, on_preview=None):
+    def __init__(self, root, cfg, on_ok, on_preview=None, on_bar_preview=None, on_close=None):
+        """on_preview(style, minutes)：播放提示畫面預覽。
+        on_bar_preview(style)：浮動條暫時換成該樣式（點選即預覽）。
+        on_close()：視窗關閉時（儲存或取消）呼叫，用來還原預覽。"""
         super().__init__(root, "設定")
         self.cfg, self.on_ok, self.on_preview = cfg, on_ok, on_preview
+        self.on_bar_preview, self.on_close = on_bar_preview, on_close
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
         grid = tk.Frame(self, bg=BG)
         grid.pack(fill="x")
         self.entries = {}
@@ -196,20 +199,33 @@ class SettingsDialog(_Dialog):
             cb.pack(side="left", padx=(0, 10))
             self.show_vars[key] = var
             self.show_cbs.append(cb)
-        self.bar_style.trace_add("write", lambda *_a: self._sync_show_state())
+        self.bar_style.trace_add("write", lambda *_a: self._on_bar_style())
         self._sync_show_state()
 
         self.celebrate_style = self.radios(self.section("下班前提示畫面"), CELEBRATE_STYLES, cfg["celebrate_style"])
+        if on_preview:
+            self.button(self, "▶ 預覽提示畫面", self.preview).pack(anchor="w", pady=(8, 0))
 
         self.err = self.label(self, fg=RED, size=9)
         self.err.pack(anchor="w", pady=(8, 0))
-        self.buttons("儲存", extra=("預覽提示", self.preview) if on_preview else None)
+        self.buttons("儲存")
         self.show()
 
     def _sync_show_state(self):
         state = "normal" if self.bar_style.get() == "row" else "disabled"
         for cb in self.show_cbs:
             cb.config(state=state)
+
+    def _on_bar_style(self):
+        self._sync_show_state()
+        if self.on_bar_preview:
+            self.on_bar_preview(self.bar_style.get())
+
+    def destroy(self):
+        cb, self.on_close = self.on_close, None          # 只呼叫一次
+        if cb:
+            cb()
+        super().destroy()
 
     def preview(self):
         try:
