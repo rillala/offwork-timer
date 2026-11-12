@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# offwork-timer
+*.pyc
+# 個人設定（第一次執行時會自動產生）
+config.json
