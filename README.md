@@ -73,7 +73,7 @@ run.bat
 
 | 欄位 | 說明 |
 | --- | --- |
-| `work_hours` | 每天工作時數（不含午休），可用小數，例如 `8.5` |
+| `work_hours` | 每天工作時數（不含午休），以半小時為單位，例如 `8` 或 `8.5` |
 | `lunch_start` / `lunch_end` | 午休起訖時間（HH:MM） |
 | `remind_before_min` | 下班前幾分鐘播放煙火 |
 | `warn_before_min` | 下班前幾分鐘文字變紅 |

@@ -243,6 +243,8 @@ class SettingsDialog(_Dialog):
             raise ValueError("每日工時請輸入數字")
         if not 0 < new["work_hours"] <= 24:
             raise ValueError("每日工時需介於 0～24 小時")
+        if not (new["work_hours"] * 2).is_integer():
+            raise ValueError("每日工時以半小時為單位，例如 8 或 8.5")
         try:
             ls, le = parse_hhmm(g["lunch_start"]), parse_hhmm(g["lunch_end"])
         except ValueError:
