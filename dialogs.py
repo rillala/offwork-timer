@@ -49,7 +49,18 @@ class _Dialog(tk.Toplevel):
                      font=num(size), justify="center", highlightthickness=1,
                      highlightbackground=SURFACE, highlightcolor=BLUE)
         e.insert(0, str(value))
+        # 數字鍵盤的小數點在 Tk/Windows 上不一定會輸入字元 → 手動插入「.」
+        for seq in ("<KeyPress-KP_Decimal>", "<KeyPress-KP_Separator>"):
+            e.bind(seq, _Dialog._insert_dot)
         return e
+
+    @staticmethod
+    def _insert_dot(event):
+        w = event.widget
+        if w.selection_present():
+            w.delete("sel.first", "sel.last")
+        w.insert("insert", ".")
+        return "break"
 
     @staticmethod
     def button(parent, text, cmd, primary=False):
